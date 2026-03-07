@@ -1,3 +1,5 @@
+![M365 Investigation Toolkit Banner](./docs/images/github-banner.png)
+
 # M365 Investigation Toolkit
 
 > **Read-Only Microsoft 365 & Entra ID Security Investigation Platform**
