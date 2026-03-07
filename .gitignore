@@ -1,0 +1,122 @@
+# =============================================================================
+# M365 Investigation Toolkit - .gitignore
+# Secrets and sensitive data protection
+# =============================================================================
+
+# -----------------------------------------------------------------------------
+# Output Directories - Investigation Results (NEVER commit)
+# -----------------------------------------------------------------------------
+/output/
+/results/
+/reports/
+/exports/
+/investigations/
+/evidence/
+/dist/
+/build/
+
+# -----------------------------------------------------------------------------
+# Sensitive Files - Credentials & Secrets (CRITICAL)
+# -----------------------------------------------------------------------------
+# Tenant configurations with real data
+**/tenant*.json
+**/config*.json
+!config.example.json
+
+# Credentials and secrets
+*.pem
+*.key
+*.pfx
+*.p12
+*.crt
+*.cer
+*.private
+credentials*
+secrets*
+*.secret
+.env
+.env.*
+!.env.example
+
+# Token files
+*.token
+access_token*
+refresh_token*
+auth_token*
+*.auth
+
+# Certificate files
+certs/
+certificates/
+
+# -----------------------------------------------------------------------------
+# PowerShell Specific
+# -----------------------------------------------------------------------------
+# PowerShell transcript logs (may contain sensitive data)
+*.log
+transcript*.txt
+Start-Transcript*.txt
+
+# PowerShell session files
+ConsoleHost_history.txt
+PSReadLineHistory*
+
+# -----------------------------------------------------------------------------
+# Temporary Files
+# -----------------------------------------------------------------------------
+/tmp/
+/temp/
+*.tmp
+*.temp
+*.swp
+*.swo
+*~
+.cache/
+*.cache
+
+# -----------------------------------------------------------------------------
+# IDE and Editor Files
+# -----------------------------------------------------------------------------
+.vscode/
+.idea/
+*.iml
+.DS_Store
+Thumbs.db
+
+# -----------------------------------------------------------------------------
+# OS Generated Files
+# -----------------------------------------------------------------------------
+# macOS
+.DS_Store
+.DS_Store?
+._*
+.Spotlight-V100
+.Trashes
+
+# Windows
+Thumbs.db
+Desktop.ini
+$RECYCLE.BIN/
+
+# -----------------------------------------------------------------------------
+# Archive Files
+# -----------------------------------------------------------------------------
+*.zip
+*.tar
+*.tar.gz
+*.tgz
+*.rar
+*.7z
+
+# -----------------------------------------------------------------------------
+# Test Artifacts
+# -----------------------------------------------------------------------------
+/tests/output/
+/tests/results/
+
+# -----------------------------------------------------------------------------
+# Profile and User Data
+# -----------------------------------------------------------------------------
+/profiles/*.json
+!/profiles/template*.json
+!/profiles/example*.json

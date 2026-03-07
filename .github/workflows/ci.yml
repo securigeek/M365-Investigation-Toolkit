@@ -1,0 +1,58 @@
+name: CI
+
+on:
+  push:
+    branches: [ main, develop ]
+  pull_request:
+    branches: [ main ]
+
+jobs:
+  test:
+    runs-on: ${{ matrix.os }}
+    strategy:
+      matrix:
+        os: [windows-latest, macos-latest, ubuntu-latest]
+        pwsh-version: ['7.5']
+
+    steps:
+    - uses: actions/checkout@v4
+
+    - name: Setup PowerShell
+      uses: PowerShell/PSScriptAnalyzer@v1
+      with:
+        path: .
+        recurse: true
+        output: results.sarif
+
+    - name: Run Pester Tests
+      shell: pwsh
+      run: |
+        Install-Module -Name Pester -Force -Scope CurrentUser
+        Invoke-Pester tests/powershell -Output Detailed
+
+    - name: Syntax Validation
+      shell: pwsh
+      run: |
+        $files = Get-ChildItem -Path . -Filter "*.ps1" -Recurse | Where-Object { $_.FullName -notlike "*/.github/*" }
+        $errors = @()
+        foreach ($file in $files) {
+          $null = [System.Management.Automation.PSParser]::Tokenize(
+            (Get-Content -Raw $file.FullName), [ref]$errors
+          )
+        }
+        if ($errors.Count -gt 0) {
+          $errors | ForEach-Object { Write-Error $_.Message }
+          exit 1
+        }
+        Write-Host "✅ All PowerShell files passed syntax validation"
+
+  lint:
+    runs-on: ubuntu-latest
+    steps:
+    - uses: actions/checkout@v4
+    
+    - name: Run PSScriptAnalyzer
+      shell: pwsh
+      run: |
+        Install-Module -Name PSScriptAnalyzer -Force -Scope CurrentUser
+        Invoke-ScriptAnalyzer -Path . -Recurse -Severity Warning
