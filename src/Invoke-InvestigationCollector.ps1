@@ -36,7 +36,10 @@ param(
     [string]$SubjectContains,
 
     [Parameter()]
-    [switch]$SkipPrompt
+    [switch]$SkipPrompt,
+
+    [Parameter()]
+    [switch]$Quick
 )
 
 Set-StrictMode -Version Latest
@@ -592,9 +595,9 @@ function Get-InvestigationEnvironmentSnapshot {
 
     $users = 0; $apps = 0; $sps = 0; $licenses = 0; $domains = 0; $admins = 0
 
-    try { $users = (Get-MgUser -Top 1 -CountVariable c -ConsistencyLevel eventual -ErrorAction SilentlyContinue | Out-Null; $c) } catch {}
-    try { $apps = (Get-MgApplication -Top 1 -CountVariable c -ConsistencyLevel eventual -ErrorAction SilentlyContinue | Out-Null; $c) } catch {}
-    try { $sps = (Get-MgServicePrincipal -Top 1 -CountVariable c -ConsistencyLevel eventual -ErrorAction SilentlyContinue | Out-Null; $c) } catch {}
+    try { $users = $(Get-MgUser -Top 1 -CountVariable c -ConsistencyLevel eventual -ErrorAction SilentlyContinue | Out-Null; $c) } catch {}
+    try { $apps = $(Get-MgApplication -Top 1 -CountVariable c -ConsistencyLevel eventual -ErrorAction SilentlyContinue | Out-Null; $c) } catch {}
+    try { $sps = $(Get-MgServicePrincipal -Top 1 -CountVariable c -ConsistencyLevel eventual -ErrorAction SilentlyContinue | Out-Null; $c) } catch {}
     try { $licenses = (Get-MgSubscribedSku -ErrorAction SilentlyContinue | Measure-Object -Property ConsumedUnits -Sum).Sum } catch {}
     try { $domains = (Get-MgDomain -ErrorAction SilentlyContinue).Count } catch {}
     try { 
