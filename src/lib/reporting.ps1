@@ -530,7 +530,7 @@ function New-InvestigationSummaryObject {
     }
 }
 
-function New-InvestigationTerminalSummary {
+function Write-InvestigationTerminalSummary {
     param(
         [Parameter(Mandatory = $true)]
         [psobject]$Manifest,
@@ -551,76 +551,210 @@ function New-InvestigationTerminalSummary {
     $verdict = New-InvestigationVerdict -Manifest $Manifest -CollectorResults $CollectorResults -Detections $Detections
     $topRecords = @(Get-InvestigationTopFindingRecords -Assessment $assessment)
     $skippedLines = @(New-InvestigationSkippedModuleLines -CollectorResults $CollectorResults)
-    $topDetections = @($Detections | Select-Object -First 3)
+    $topDetections = @($Detections | Select-Object -First 5)
     $evidenceLimitations = @(Get-InvestigationEvidenceLimitations -Manifest $Manifest)
+    $skipGuidance = @($assessment.SkipGuidance)
 
-    $lines = @(
-        "+--------------------------------------------------+",
-        "| M365 COMPROMISE TRIAGE                           |",
-        "| Verdict: $(Format-InvestigationConsoleValue -Value $verdict.Severity -Width 38)|",
-        "| Tenant: $(Format-InvestigationConsoleValue -Value ([string]$Manifest.TenantDomain) -Width 39)|",
-        "| Case: $(Format-InvestigationConsoleValue -Value ([string]$Manifest.CaseName) -Width 41)|",
-        "+--------------------------------------------------+",
-        "Output Folder: $OutputPath"
-    )
+    # ──── Layout constants ────
+    [int]$w = 68            # inner width between │ chars
+    $border  = "─" * ($w + 2)
+    $padLine = "│" + (" " * ($w + 2)) + "│"
 
+    # Helper: pad/truncate a string to exactly $n chars
+    function Pad([string]$s, [int]$n) {
+        if ($null -eq $s) { $s = "" }
+        if ($s.Length -gt $n) { return $s.Substring(0, $n - 3) + "..." }
+        return $s.PadRight($n)
+    }
+
+    # Helper: write a box line
+    function BoxLine([string]$content) {
+        return "│ $(Pad $content $w) │"
+    }
+
+    # ──── Calculate stats ────
+    [int]$collected = [int]$assessment.Coverage.Collected
+    [int]$skipped   = [int]$assessment.Coverage.Skipped
+    [int]$failed    = [int]$assessment.Coverage.Failed
+    [int]$total     = $collected + $skipped + $failed
+    [int]$pct       = if ($total -gt 0) { [math]::Round(($collected / $total) * 100) } else { 0 }
+
+    # Elapsed time
+    $elapsed = ""
+    if ($Manifest.PSObject.Properties.Name -contains "TimestampUtc" -and $Manifest.TimestampUtc) {
+        try {
+            $startTime = [datetime]$Manifest.TimestampUtc
+            $elapsedSpan = (Get-Date).ToUniversalTime() - $startTime
+            $elapsed = "$([math]::Floor($elapsedSpan.TotalMinutes))m $($elapsedSpan.Seconds)s"
+        } catch { $elapsed = "" }
+    }
+
+    # Severity colors
+    $severityUpper = $verdict.Severity.ToUpper()
+    $severityColor = switch ($severityUpper) {
+        "HIGH"     { "Red" }
+        "MEDIUM"   { "Yellow" }
+        "LOW"      { "Green" }
+        default    { "White" }
+    }
+
+    # Risk meter
+    [int]$riskLevel = switch ($severityUpper) { "LOW" { 1 } "MEDIUM" { 2 } "HIGH" { 3 } default { 0 } }
+    [int]$gaugeW = 20
+    [int]$filled = [math]::Round(($riskLevel / 3) * $gaugeW)
+    [int]$empty  = $gaugeW - $filled
+    $riskGauge = ("█" * $filled) + ("░" * $empty)
+    $riskEmoji = switch ($severityUpper) { "LOW" { "🟢" } "MEDIUM" { "🟡" } "HIGH" { "🔴" } default { "⚪" } }
+    [int]$riskPct = [math]::Round(($riskLevel / 3) * 100)
+
+    # Coverage bar
+    [int]$cW = if ($total -gt 0) { [math]::Round(($collected / $total) * $gaugeW) } else { 0 }
+    [int]$sW = if ($total -gt 0) { [math]::Round(($skipped / $total) * $gaugeW) } else { 0 }
+    [int]$fW = $gaugeW - $cW - $sW
+    if ($fW -lt 0) { $fW = 0 }
+    $coverageBar = ("█" * $cW) + ("░" * $sW) + ("▒" * $fW)
+
+    # ════════════════════════════════════════════════════
+    # RENDER
+    # ════════════════════════════════════════════════════
+    Write-Host ""
+
+    # ──── Header ────
+    Write-Host "╔═$("═" * $w)═╗" -ForegroundColor Cyan
+    $headerText = "🔍 M365 SECURITY INVESTIGATION COMPLETE"
+    Write-Host "║ $(Pad $headerText $w) ║" -ForegroundColor Cyan
+    Write-Host "╚═$("═" * $w)═╝" -ForegroundColor Cyan
+    Write-Host ""
+
+    # ──── Risk Assessment ────
+    Write-Host "┌─ RISK ASSESSMENT $("─" * ($w - 17))┐" -ForegroundColor $severityColor
+    Write-Host $padLine -ForegroundColor $severityColor
+    Write-Host (BoxLine "  SEVERITY:  $riskEmoji $(Pad $severityUpper 10)   SCORE: $($verdict.Score)/200") -ForegroundColor $severityColor
+    Write-Host $padLine -ForegroundColor $severityColor
+    Write-Host (BoxLine "  RISK:  [$riskGauge] $($riskPct)%") -ForegroundColor $severityColor
+    Write-Host $padLine -ForegroundColor $severityColor
+    Write-Host (BoxLine "  Tenant:    $(Pad $Manifest.TenantDomain 54)") -ForegroundColor $severityColor
+
+    $caseName = if ($Manifest.CaseName) { $Manifest.CaseName } else { "unknown" }
+    Write-Host (BoxLine "  Case:      $(Pad $caseName 54)") -ForegroundColor $severityColor
+
+    if ($elapsed) {
+        Write-Host (BoxLine "  Duration:  $(Pad $elapsed 54)") -ForegroundColor $severityColor
+    }
+    Write-Host (BoxLine "  Lookback:  $(Pad "$($Manifest.DaysBack) days" 54)") -ForegroundColor $severityColor
+    Write-Host $padLine -ForegroundColor $severityColor
+    Write-Host "└─$border┘" -ForegroundColor $severityColor
+
+    # ──── Coverage ────
+    Write-Host ""
+    Write-Host "┌─ COVERAGE $("─" * ($w - 9))┐" -ForegroundColor White
+    Write-Host $padLine -ForegroundColor White
+    Write-Host (BoxLine "  MODULE STATUS:  [$coverageBar]  $pct%") -ForegroundColor White
+    Write-Host $padLine -ForegroundColor White
+    Write-Host (BoxLine "    ✅ Collected:  $(Pad "$collected modules" 48)") -ForegroundColor Green
+    Write-Host (BoxLine "    ⏭️  Skipped:   $(Pad "$skipped modules" 48)") -ForegroundColor Yellow
+    Write-Host (BoxLine "    ❌ Failed:     $(Pad "$failed modules" 48)") -ForegroundColor Red
+    Write-Host $padLine -ForegroundColor White
+    Write-Host "└─$border┘" -ForegroundColor White
+
+    # ──── Detections (when present) ────
     if ($topDetections.Count -gt 0) {
-        $lines += @("", "Top Detections")
+        Write-Host ""
+        $highCount = @($Detections | Where-Object { $_.Severity -ieq "High" }).Count
+        $medCount  = @($Detections | Where-Object { $_.Severity -ieq "Medium" }).Count
+        $detHeader = "🚨 DETECTIONS ($($Detections.Count) found: $highCount high, $medCount medium)"
+        Write-Host "┌─ $(Pad $detHeader ($w - 1))┐" -ForegroundColor Red
+        Write-Host $padLine -ForegroundColor Red
+
         foreach ($detection in $topDetections) {
-            $lines += "[$($detection.Severity.ToUpperInvariant())] $($detection.Name): $($detection.Summary)"
+            $sev = $detection.Severity.ToUpper()
+            $icon = switch ($sev) { "HIGH" { "🔴" } "MEDIUM" { "🟡" } default { "🟢" } }
+            $detLine = "$icon [$sev] $($detection.Name): $($detection.Summary)"
+            Write-Host (BoxLine "  $(Pad $detLine ($w - 2))") -ForegroundColor $(if ($sev -ieq "HIGH") { "Red" } else { "Yellow" })
         }
-    } else {
-        $lines += @("", "Top Findings")
+
+        Write-Host $padLine -ForegroundColor Red
+        Write-Host "└─$border┘" -ForegroundColor Red
+    }
+
+    # ──── Findings (when no detections) ────
+    if ($topDetections.Count -eq 0) {
+        Write-Host ""
+        Write-Host "┌─ FINDINGS $("─" * ($w - 9))┐" -ForegroundColor White
+        Write-Host $padLine -ForegroundColor White
+
         if ($topRecords.Count -eq 0) {
-            $lines += "[INFO] No suspicious findings met the current verdict thresholds."
+            Write-Host (BoxLine "  ✅ No suspicious findings detected") -ForegroundColor Green
         } else {
-            foreach ($record in $topRecords) {
+            foreach ($record in $topRecords | Select-Object -First 5) {
                 $priority = Resolve-InvestigationFindingPriorityLabel -Weight $record.Weight
-                $lines += "[$priority] $($record.Summary)"
+                $findColor = if ($record.Weight -ge 30) { "Red" } elseif ($record.Weight -ge 15) { "Yellow" } else { "Green" }
+                Write-Host (BoxLine "  [$priority] $(Pad $record.Summary ($w - 10))") -ForegroundColor $findColor
             }
         }
+
+        Write-Host $padLine -ForegroundColor White
+        Write-Host "└─$border┘" -ForegroundColor White
     }
 
-    $lines += @("", "Confidence Limits", "[INFO] $($verdict.ConfidenceNote)")
-    foreach ($limitation in $evidenceLimitations) {
-        $lines += "[INFO] $limitation"
+    # ──── Executive Summary / Next Steps ────
+    $nextSteps = @($assessment.NextSteps | Select-Object -First 4)
+    if ($nextSteps.Count -gt 0) {
+        Write-Host ""
+        Write-Host "┌─ RECOMMENDED ACTIONS $("─" * ($w - 20))┐" -ForegroundColor Cyan
+        Write-Host $padLine -ForegroundColor Cyan
+
+        [int]$stepNum = 0
+        foreach ($step in $nextSteps) {
+            $stepNum++
+            Write-Host (BoxLine "  $stepNum. $(Pad $step ($w - 5))") -ForegroundColor Cyan
+        }
+
+        Write-Host $padLine -ForegroundColor Cyan
+        Write-Host "└─$border┘" -ForegroundColor Cyan
     }
 
-    $lines += @(
-        "",
-        "Coverage",
-        "[OK  ] $($assessment.Coverage.Collected) modules collected"
-    )
-    if ($assessment.Coverage.Skipped -gt 0) {
-        $lines += "[SKIP] $($assessment.Coverage.Skipped) modules skipped by design"
-    }
-    if ($assessment.Coverage.Failed -gt 0) {
-        $lines += "[FAIL] $($assessment.Coverage.Failed) modules failed"
-    } else {
-        $lines += "[FAIL] 0 modules failed"
-    }
-
+    # ──── Skipped Modules ────
     if ($skippedLines.Count -gt 0) {
-        $lines += @("", "Skipped Modules")
-        $lines += $skippedLines
+        Write-Host ""
+        Write-Host "┌─ SKIPPED MODULES $("─" * ($w - 17))┐" -ForegroundColor DarkYellow
+        Write-Host $padLine -ForegroundColor DarkYellow
+
+        foreach ($line in $skippedLines | Select-Object -First 6) {
+            Write-Host (BoxLine "  $(Pad $line ($w - 2))") -ForegroundColor DarkYellow
+        }
+
+        if ($skipGuidance.Count -gt 0) {
+            Write-Host $padLine -ForegroundColor DarkYellow
+            foreach ($guide in $skipGuidance) {
+                Write-Host (BoxLine "  💡 $(Pad $guide ($w - 4))") -ForegroundColor Yellow
+            }
+        }
+
+        Write-Host $padLine -ForegroundColor DarkYellow
+        Write-Host "└─$border┘" -ForegroundColor DarkYellow
     }
 
-    if (@($assessment.CollectionGaps).Count -gt 0) {
-        $lines += @("", "Collection Gaps")
-        $lines += @(
-            $assessment.CollectionGaps |
-                Where-Object { $_ -notmatch "^Skipped " } |
-                ForEach-Object { "[GAP ] $_" }
-        )
+    # ──── Confidence & Limitations ────
+    Write-Host ""
+    Write-Host "┌─ CONFIDENCE $("─" * ($w - 11))┐" -ForegroundColor DarkGray
+    Write-Host $padLine -ForegroundColor DarkGray
+    Write-Host (BoxLine "  $(Pad $verdict.ConfidenceNote ($w - 2))") -ForegroundColor DarkGray
+
+    foreach ($limitation in $evidenceLimitations | Select-Object -First 3) {
+        Write-Host (BoxLine "  • $(Pad $limitation ($w - 4))") -ForegroundColor DarkGray
     }
 
-    if (@($assessment.SkipGuidance).Count -gt 0) {
-        $lines += @("", "How To Enable Skipped Pivots")
-        $lines += $assessment.SkipGuidance
-    }
+    Write-Host $padLine -ForegroundColor DarkGray
+    Write-Host "└─$border┘" -ForegroundColor DarkGray
 
-    return ($lines -join [Environment]::NewLine).TrimEnd()
+    # ──── Output path ────
+    Write-Host ""
+    Write-Host "📁 Full results saved to:" -ForegroundColor Green
+    Write-Host "   $OutputPath" -ForegroundColor White
+    Write-Host ""
 }
+
 
 function New-InvestigationMarkdownSummary {
     param(

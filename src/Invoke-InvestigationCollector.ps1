@@ -506,27 +506,48 @@ function Invoke-InvestigationPlannedCollector {
         [hashtable]$Pivots
     )
 
-    switch ($Module.Name) {
-        "mailboxForwarding" { return Invoke-TenantMailboxForwardingCollector -OutputPath $OutputPath }
-        "inboxRules" { return Invoke-TenantInboxRulesCollector -OutputPath $OutputPath }
-        "transportRules" { return Invoke-TenantTransportRulesCollector -OutputPath $OutputPath }
-        "connectors" { return Invoke-TenantConnectorsCollector -OutputPath $OutputPath }
-        "riskySignins" { return Invoke-TenantRiskySigninsCollector -OutputPath $OutputPath -SinceIso $SinceIso -CommandName $Module.Command }
-        "appChanges" { return Invoke-TenantAppChangesCollector -OutputPath $OutputPath -SinceIso $SinceIso }
-        "auditCoverage" { return Invoke-TenantAuditCoverageCollector -OutputPath $OutputPath }
-        "directoryAuditLog" { return Invoke-TenantDirectoryAuditLogCollector -OutputPath $OutputPath -SinceIso $SinceIso -CommandName $Module.Command }
-        "interactiveSignins" { return Invoke-TenantInteractiveSigninsCollector -OutputPath $OutputPath -SinceIso $SinceIso -CommandName $Module.Command }
-        "nonInteractiveSignins" { return Invoke-TenantNonInteractiveSigninsCollector -OutputPath $OutputPath -SinceIso $SinceIso -CommandName $Module.Command }
-        "servicePrincipalSignins" { return Invoke-TenantServicePrincipalSigninsCollector -OutputPath $OutputPath -SinceIso $SinceIso -CommandName $Module.Command }
-        "unifiedAuditLog" { return Invoke-TenantUnifiedAuditLogCollector -OutputPath $OutputPath -StartDate $StartDate -EndDate $EndDate }
-        "roleAssignments" { return Invoke-TenantRoleAssignmentsCollector -OutputPath $OutputPath -SinceIso $SinceIso -CommandName $Module.Command }
-        "consentGrants" { return Invoke-TenantConsentGrantsCollector -OutputPath $OutputPath -CommandName $Module.Command }
-        "acceptedDomains" { return Invoke-TenantAcceptedDomainsCollector -OutputPath $OutputPath }
-        "mailboxAuditPosture" { return Invoke-TenantMailboxAuditPostureCollector -OutputPath $OutputPath }
-        "messageTracePivot" { return Invoke-TenantMessageTracePivotCollector -OutputPath $OutputPath -StartDate $StartDate -EndDate $EndDate -Pivots $Pivots -CommandName $Module.Command }
-        "quarantinePivot" { return Invoke-TenantQuarantinePivotCollector -OutputPath $OutputPath -StartDate $StartDate -EndDate $EndDate -Pivots $Pivots }
+    Write-Host "  🔍 [$($Module.Name)] Starting collection..." -ForegroundColor Cyan
+    $stopwatch = [System.Diagnostics.Stopwatch]::StartNew()
+
+    $result = switch ($Module.Name) {
+        "mailboxForwarding" { Invoke-TenantMailboxForwardingCollector -OutputPath $OutputPath; break }
+        "inboxRules" { Invoke-TenantInboxRulesCollector -OutputPath $OutputPath; break }
+        "transportRules" { Invoke-TenantTransportRulesCollector -OutputPath $OutputPath; break }
+        "connectors" { Invoke-TenantConnectorsCollector -OutputPath $OutputPath; break }
+        "riskySignins" { Invoke-TenantRiskySigninsCollector -OutputPath $OutputPath -SinceIso $SinceIso -CommandName $Module.Command; break }
+        "appChanges" { Invoke-TenantAppChangesCollector -OutputPath $OutputPath -SinceIso $SinceIso; break }
+        "auditCoverage" { Invoke-TenantAuditCoverageCollector -OutputPath $OutputPath; break }
+        "directoryAuditLog" { Invoke-TenantDirectoryAuditLogCollector -OutputPath $OutputPath -SinceIso $SinceIso -CommandName $Module.Command; break }
+        "interactiveSignins" { Invoke-TenantInteractiveSigninsCollector -OutputPath $OutputPath -SinceIso $SinceIso -CommandName $Module.Command; break }
+        "nonInteractiveSignins" { Invoke-TenantNonInteractiveSigninsCollector -OutputPath $OutputPath -SinceIso $SinceIso -CommandName $Module.Command; break }
+        "servicePrincipalSignins" { Invoke-TenantServicePrincipalSigninsCollector -OutputPath $OutputPath -SinceIso $SinceIso -CommandName $Module.Command; break }
+        "unifiedAuditLog" { 
+            Write-Host "  ⏱️  Note: This module may take up to 2 minutes (timeout protected)..." -ForegroundColor DarkYellow
+            Invoke-TenantUnifiedAuditLogCollector -OutputPath $OutputPath -StartDate $StartDate -EndDate $EndDate; break 
+        }
+        "roleAssignments" { Invoke-TenantRoleAssignmentsCollector -OutputPath $OutputPath -SinceIso $SinceIso -CommandName $Module.Command; break }
+        "consentGrants" { Invoke-TenantConsentGrantsCollector -OutputPath $OutputPath -CommandName $Module.Command; break }
+        "acceptedDomains" { Invoke-TenantAcceptedDomainsCollector -OutputPath $OutputPath; break }
+        "mailboxAuditPosture" { Invoke-TenantMailboxAuditPostureCollector -OutputPath $OutputPath; break }
+        "messageTracePivot" { Invoke-TenantMessageTracePivotCollector -OutputPath $OutputPath -StartDate $StartDate -EndDate $EndDate -Pivots $Pivots -CommandName $Module.Command; break }
+        "quarantinePivot" { Invoke-TenantQuarantinePivotCollector -OutputPath $OutputPath -StartDate $StartDate -EndDate $EndDate -Pivots $Pivots; break }
         default { throw "Unknown investigation module '$($Module.Name)'." }
     }
+
+    $stopwatch.Stop()
+    $duration = $stopwatch.Elapsed.ToString('mm\:ss')
+    
+    $statusEmoji = switch ($result.Status) {
+        "success" { "✅" }
+        "partial" { "⚠️" }
+        "failed" { "❌" }
+        "skipped" { "⏭️" }
+        default { "✓" }
+    }
+    
+    Write-Host "  $statusEmoji [$($Module.Name)] Complete in $duration" -ForegroundColor $(if ($result.Status -eq "success") { "Green" } else { "Yellow" })
+    
+    return $result
 }
 
 function New-InvestigationPreflightCapabilities {
@@ -586,7 +607,10 @@ function Invoke-InvestigationCollectionRun {
         [hashtable]$Pivots,
 
         [Parameter()]
-        [psobject]$Profile
+        [psobject]$Profile,
+
+        [Parameter()]
+        [switch]$Quick
     )
 
     $startDate = (Get-Date).ToUniversalTime().AddDays(-$DaysBack)
@@ -594,6 +618,24 @@ function Invoke-InvestigationCollectionRun {
     $sinceIso = $startDate.ToString("o")
     $apiCatalog = Get-InvestigationApiCatalog
     $executionPlan = Resolve-InvestigationExecutionPlan -ApiCatalog $apiCatalog -Pivots $Pivots -Profile $Profile
+
+    # In Quick mode, filter out heavy modules
+    if ($Quick) {
+        $heavyModules = @("unifiedAuditLog", "interactiveSignins", "nonInteractiveSignins", "servicePrincipalSignins")
+        $filteredModules = @($executionPlan.Modules | Where-Object { $_.Name -notin $heavyModules })
+        $skippedForQuick = @($executionPlan.Modules | Where-Object { $_.Name -in $heavyModules })
+        
+        # Add skipped heavy modules to SkippedModules
+        foreach ($heavyModule in $skippedForQuick) {
+            $heavyModule.SkipReason = "Skipped in Quick mode (use full scan for complete audit)"
+        }
+        $executionPlan.Modules = $filteredModules
+        $executionPlan.SkippedModules += $skippedForQuick
+        
+        Write-Host "⚡ QUICK MODE: Skipping heavy modules ($($skippedForQuick.Count)): $($skippedForQuick.Name -join ', ')" -ForegroundColor Yellow
+        Write-Host "   For complete audit, run without -Quick flag`n" -ForegroundColor DarkGray
+    }
+
     $preflight = New-InvestigationPreflightCapabilities `
         -Prerequisites $Prerequisites `
         -ExecutionPlan $executionPlan `
@@ -614,9 +656,17 @@ function Invoke-InvestigationCollectionRun {
         -CustomerName $(if ($Profile -and $Profile.PSObject.Properties.Name -contains "CustomerName") { $Profile.CustomerName } else { $null })
 
     $collectorResults = @()
+    $totalModules = $executionPlan.Modules.Count + $executionPlan.SkippedModules.Count
+    $currentModule = 0
+    
+    Write-Host "`n📊 Starting collection of $totalModules modules...`n" -ForegroundColor Green
+    
     foreach ($module in @($executionPlan.Modules)) {
+        $currentModule++
+        Write-Host "[$currentModule/$totalModules] " -ForegroundColor Gray -NoNewline
         $runtimeSkip = Resolve-InvestigationRuntimeSkip -ModuleName $module.Name -CollectorResults $collectorResults
         if ($runtimeSkip.ShouldSkip) {
+            Write-Host "⏭️  [$($module.Name)] Skipped: $($runtimeSkip.Reason)" -ForegroundColor Yellow
             $collectorResults += New-InvestigationSkippedResult `
                 -OutputPath $OutputPath `
                 -Module ([pscustomobject]@{
@@ -626,13 +676,29 @@ function Invoke-InvestigationCollectionRun {
             continue
         }
 
-        $collectorResults += Invoke-InvestigationPlannedCollector `
-            -Module $module `
-            -OutputPath $OutputPath `
-            -SinceIso $sinceIso `
-            -StartDate $startDate `
-            -EndDate $endDate `
-            -Pivots $Pivots
+        try {
+            $result = Invoke-InvestigationPlannedCollector `
+                -Module $module `
+                -OutputPath $OutputPath `
+                -SinceIso $sinceIso `
+                -StartDate $startDate `
+                -EndDate $endDate `
+                -Pivots $Pivots
+            $collectorResults += $result
+            
+            # Force garbage collection after heavy collectors to prevent memory buildup
+            if ($module.Name -in @("inboxRules", "mailboxForwarding", "unifiedAuditLog", "interactiveSignins")) {
+                [System.GC]::Collect() | Out-Null
+            }
+        } catch {
+            Write-Host "❌ [$($module.Name)] FAILED: $_.Exception.Message" -ForegroundColor Red
+            $collectorResults += New-InvestigationSkippedResult `
+                -OutputPath $OutputPath `
+                -Module ([pscustomobject]@{
+                    Name = $module.Name
+                    SkipReason = "Error: $($_.Exception.Message)"
+                })
+        }
     }
     foreach ($module in @($executionPlan.SkippedModules)) {
         $collectorResults += New-InvestigationSkippedResult -OutputPath $OutputPath -Module $module
@@ -752,7 +818,10 @@ function Invoke-SelfServiceCollection {
         [string]$OutputPath,
 
         [Parameter(Mandatory = $true)]
-        [hashtable]$Pivots
+        [hashtable]$Pivots,
+
+        [Parameter()]
+        [switch]$Quick
     )
 
     Write-Host "Opening delegated browser sign-in for Microsoft 365 read-only collection..." -ForegroundColor Cyan
@@ -765,7 +834,8 @@ function Invoke-SelfServiceCollection {
         -DaysBack $DaysBack `
         -OutputPath $OutputPath `
         -Prerequisites $Prerequisites `
-        -Pivots $Pivots
+        -Pivots $Pivots `
+        -Quick:$Quick
 }
 
 function Invoke-InvestigationCollector {
@@ -782,7 +852,8 @@ function Invoke-InvestigationCollector {
         [string]$Domain,
         [string]$UserPrincipalName,
         [string]$SubjectContains,
-        [switch]$SkipPrompt
+        [switch]$SkipPrompt,
+        [switch]$Quick
     )
 
     $prerequisites = Ensure-InvestigationPrerequisites -SkipPrompt:$SkipPrompt
@@ -855,7 +926,8 @@ function Invoke-InvestigationCollector {
             -CaseName $resolvedCaseName `
             -DaysBack $resolvedDaysBack `
             -OutputPath $OutputPath `
-            -Pivots $pivots
+            -Pivots $pivots `
+            -Quick:$Quick
     } finally {
         Clear-InvestigationConnections
     }
@@ -875,15 +947,20 @@ if ($MyInvocation.InvocationName -ne ".") {
         $invokeParams.SkipPrompt = $SkipPrompt
     }
 
-    $result = Invoke-InvestigationCollector @invokeParams
+    try {
+        $result = Invoke-InvestigationCollector @invokeParams
 
-    $terminalSummary = New-InvestigationTerminalSummary `
-        -Manifest $result.Manifest `
-        -CollectorResults $result.CollectorResults `
-        -OutputPath $result.OutputPath
+        Write-InvestigationTerminalSummary `
+            -Manifest $result.Manifest `
+            -CollectorResults $result.CollectorResults `
+            -Detections $result.DetectionResults `
+            -OutputPath $result.OutputPath
 
-    Write-Host ""
-    Write-Host $terminalSummary -ForegroundColor Green
-
-    return $result
+        # Return result for programmatic callers without polluting terminal display
+        return $result
+    } catch {
+        Write-Host "`n❌ Investigation failed: $_" -ForegroundColor Red
+        Write-Host "Check the output folder for partial results." -ForegroundColor Yellow
+        throw
+    }
 }

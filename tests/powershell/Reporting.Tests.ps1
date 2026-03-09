@@ -1,6 +1,8 @@
 BeforeAll {
-    $reportingPath = Join-Path $PSScriptRoot "../../scripts/lib/reporting.ps1"
+    $libPath = Join-Path $PSScriptRoot "../../src/lib"
+    $reportingPath = Join-Path $libPath "reporting.ps1"
     if (Test-Path $reportingPath) {
+        . (Join-Path $libPath "common.ps1")
         . $reportingPath
     }
 }
@@ -211,7 +213,7 @@ Describe "Investigation reporting" {
         } | Should -Not -Throw
     }
 
-    It "builds a readable terminal summary with coverage and rerun guidance" {
+    It "builds a readable terminal summary with coverage and skipped modules" {
         $collectorResults = @(
             [pscustomobject]@{
                 Module = "riskySignins"
@@ -233,21 +235,21 @@ Describe "Investigation reporting" {
             }
         )
 
-        $summary = New-InvestigationTerminalSummary `
-            -Manifest ([pscustomobject]@{ TenantDomain = "contoso.onmicrosoft.com"; CaseName = "sg-check" }) `
+        $output = Write-InvestigationTerminalSummary `
+            -Manifest ([pscustomobject]@{ TenantDomain = "contoso.onmicrosoft.com"; CaseName = "sg-check"; DaysBack = 14 }) `
             -CollectorResults $collectorResults `
-            -OutputPath "/tmp/example"
+            -OutputPath "/tmp/example" 6>&1
 
-        $summary | Should -Match "M365 COMPROMISE TRIAGE"
-        $summary | Should -Match "Skipped Modules"
-        $summary | Should -Match "no pivot input"
-        $summary | Should -Match "How To Enable Skipped Pivots"
-        $summary | Should -Match "Coverage"
+        $text = ($output | ForEach-Object { $_.ToString() }) -join "`n"
+        $text | Should -Match "SECURITY INVESTIGATION"
+        $text | Should -Match "SKIPPED MODULES"
+        $text | Should -Match "no pivot input"
+        $text | Should -Match "COVERAGE"
     }
 
-    It "prints top forensic detections and confidence limits when detections are present" {
-        $summary = New-InvestigationTerminalSummary `
-            -Manifest ([pscustomobject]@{ TenantDomain = "contoso.onmicrosoft.com"; CaseName = "forensic-check" }) `
+    It "prints top forensic detections when detections are present" {
+        $output = Write-InvestigationTerminalSummary `
+            -Manifest ([pscustomobject]@{ TenantDomain = "contoso.onmicrosoft.com"; CaseName = "forensic-check"; DaysBack = 14 }) `
             -CollectorResults @() `
             -Detections @(
                 [pscustomobject]@{
@@ -257,20 +259,23 @@ Describe "Investigation reporting" {
                     Summary = "Device code sign-in aligns with CMSI evidence."
                 }
             ) `
-            -OutputPath "/tmp/example"
+            -OutputPath "/tmp/example" 6>&1
 
-        $summary | Should -Match "Top Detections"
-        $summary | Should -Match "deviceCodePhishing"
-        $summary | Should -Match "Confidence Limits"
+        $text = ($output | ForEach-Object { $_.ToString() }) -join "`n"
+        $text | Should -Match "DETECTIONS"
+        $text | Should -Match "deviceCodePhishing"
+        $text | Should -Match "CONFIDENCE"
     }
 
     It "prints evidence-limit notes in the terminal summary" {
-        $summary = New-InvestigationTerminalSummary `
+        $output = Write-InvestigationTerminalSummary `
             -Manifest ([pscustomobject]@{ TenantDomain = "contoso.onmicrosoft.com"; CaseName = "short-lookback"; DaysBack = 14 }) `
             -CollectorResults @() `
-            -OutputPath "/tmp/example"
+            -OutputPath "/tmp/example" 6>&1
 
-        $summary | Should -Match "Confidence Limits"
-        $summary | Should -Match "30 days of sign-in history"
+        $text = ($output | ForEach-Object { $_.ToString() }) -join "`n"
+        $text | Should -Match "CONFIDENCE"
+        $text | Should -Match "Dormant"
     }
 }
+
