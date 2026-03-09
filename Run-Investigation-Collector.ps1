@@ -47,10 +47,18 @@ param(
     [string]$SubjectContains,
 
     [Parameter()]
-    [switch]$SkipPrompt
+    [switch]$SkipPrompt,
+
+    [Parameter()]
+    [switch]$Quick
 )
 
 $ErrorActionPreference = "Stop"
+
+# Optimize memory usage for large tenants
+$env:DOTNET_GCHeapCount = 4
+$env:DOTNET_GCConserveMemory = 1
+[System.GC]::Collect() | Out-Null
 
 $coreScript = Join-Path $PSScriptRoot "src/Invoke-InvestigationCollector.ps1"
 if (-not (Test-Path $coreScript)) {
@@ -71,5 +79,9 @@ foreach ($name in @("TenantId", "TenantDomain", "CaseName", "OutputPath", "Outpu
 if ($PSBoundParameters.ContainsKey("SkipPrompt")) {
     $params.SkipPrompt = $SkipPrompt
 }
+if ($PSBoundParameters.ContainsKey("Quick")) {
+    $params.Quick = $Quick
+}
 
-& $coreScript @params
+# Suppress raw output to keep the terminal summary clean
+& $coreScript @params | Out-Null

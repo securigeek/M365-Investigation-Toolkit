@@ -584,7 +584,8 @@ function Write-InvestigationTerminalSummary {
     if ($Manifest.PSObject.Properties.Name -contains "TimestampUtc" -and $Manifest.TimestampUtc) {
         try {
             $startTime = [datetime]$Manifest.TimestampUtc
-            $elapsedSpan = (Get-Date).ToUniversalTime() - $startTime
+            $elapsedSpan = (Get-Date) - $startTime
+            if ($elapsedSpan.TotalSeconds -lt 0) { $elapsedSpan = [timespan]::Zero }
             $elapsed = "$([math]::Floor($elapsedSpan.TotalMinutes))m $($elapsedSpan.Seconds)s"
         } catch { $elapsed = "" }
     }
@@ -641,7 +642,7 @@ function Write-InvestigationTerminalSummary {
     if ($elapsed) {
         Write-Host (BoxLine "  Duration:  $(Pad $elapsed 54)") -ForegroundColor $severityColor
     }
-    Write-Host (BoxLine "  Lookback:  $(Pad "$($Manifest.DaysBack) days" 54)") -ForegroundColor $severityColor
+    Write-Host (BoxLine "  Lookback:  $(Pad "$($Manifest.DaysBack) day$(if ($Manifest.DaysBack -ne 1) { 's' })" 54)") -ForegroundColor $severityColor
     Write-Host $padLine -ForegroundColor $severityColor
     Write-Host "└─$border┘" -ForegroundColor $severityColor
 
@@ -651,9 +652,9 @@ function Write-InvestigationTerminalSummary {
     Write-Host $padLine -ForegroundColor White
     Write-Host (BoxLine "  MODULE STATUS:  [$coverageBar]  $pct%") -ForegroundColor White
     Write-Host $padLine -ForegroundColor White
-    Write-Host (BoxLine "    ✅ Collected:  $(Pad "$collected modules" 48)") -ForegroundColor Green
-    Write-Host (BoxLine "    ⏭️  Skipped:   $(Pad "$skipped modules" 48)") -ForegroundColor Yellow
-    Write-Host (BoxLine "    ❌ Failed:     $(Pad "$failed modules" 48)") -ForegroundColor Red
+    Write-Host (BoxLine "    ✅ Collected:  $(Pad "$collected module$(if ($collected -ne 1) { 's' })" 48)") -ForegroundColor Green
+    Write-Host (BoxLine "    ⏭️  Skipped:   $(Pad "$skipped module$(if ($skipped -ne 1) { 's' })" 48)") -ForegroundColor Yellow
+    Write-Host (BoxLine "    ❌ Failed:     $(Pad "$failed module$(if ($failed -ne 1) { 's' })" 48)") -ForegroundColor Red
     Write-Host $padLine -ForegroundColor White
     Write-Host "└─$border┘" -ForegroundColor White
 
