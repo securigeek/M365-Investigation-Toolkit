@@ -39,19 +39,16 @@ function Invoke-TenantAuditCoverageCollector {
             
             if ($commandContext.Verified -and $commandContext.ConnectionCount -gt 0) {
                 $exchangeConnected = $true
-                Write-Verbose "Exchange Online connection verified (attempt $($connectionRetries + 1))"
             }
             else {
                 $connectionRetries++
                 if ($connectionRetries -lt $maxRetries) {
-                    Write-Warning "Exchange Online not connected. Attempting to connect... (attempt $connectionRetries of $maxRetries)"
                     try {
-                        # Try to connect using existing credentials if available
                         Connect-ExchangeOnline -ShowBanner:$false -ErrorAction Stop | Out-Null
-                        Start-Sleep -Seconds 2  # Give connection time to establish
+                        Start-Sleep -Seconds 2
                     }
                     catch {
-                        Write-Warning "Failed to auto-connect: $($_.Exception.Message)"
+                        # Silently continue
                     }
                 }
             }
@@ -59,7 +56,6 @@ function Invoke-TenantAuditCoverageCollector {
 
         if (-not $exchangeConnected) {
             $warnings += "Could not verify Exchange Online connection. UAL status may be unreliable."
-            Write-Warning "Exchange Online connection could not be verified after $maxRetries attempts"
         }
 
         # Step 2: Get config (only if connected, otherwise skip)
@@ -67,11 +63,9 @@ function Invoke-TenantAuditCoverageCollector {
         if ($exchangeConnected) {
             try {
                 $config = & $ConfigCommandName | Select-Object AdminAuditLogEnabled, UnifiedAuditLogIngestionEnabled, AuditLogAgeLimit
-                Write-Verbose "Retrieved AdminAuditLogConfig: Admin=$($config.AdminAuditLogEnabled), UAL=$($config.UnifiedAuditLogIngestionEnabled)"
             }
             catch {
                 $warnings += "Failed to retrieve audit log config: $($_.Exception.Message)"
-                Write-Warning "Get-AdminAuditLogConfig failed: $($_.Exception.Message)"
             }
         }
 
@@ -91,16 +85,22 @@ function Invoke-TenantAuditCoverageCollector {
             # Use shorter timeframe for faster probe
             $probeResult = Invoke-InvestigationUnifiedAuditProbe -CommandName $ProbeCommandName -HoursBack 24 -ResultSize 5
             $probe.Succeeded = $true
-            $probe.Records = $probeResult.Records
+            # Store only essential record data to reduce memory
+            $probe.Records = @($probeResult.Records | Select-Object -First 5 | ForEach-Object {
+                [pscustomobject]@{
+                    RecordType = $_.RecordType
+                    CreationDate = $_.CreationDate
+                    UserIds = $_.UserIds
+                    Operations = $_.Operations
+                }
+            })
             $probe.ResultCount = @($probeResult.Records).Count
             $probe.StartUtc = $probeResult.StartDate.ToUniversalTime().ToString("o")
             $probe.EndUtc = $probeResult.EndDate.ToUniversalTime().ToString("o")
-            Write-Verbose "UAL probe returned $($probe.ResultCount) records"
         }
         catch {
             $probe.Error = $_.Exception.Message
             $probe.Succeeded = $false
-            Write-Verbose "UAL probe failed: $($_.Exception.Message)"
         }
 
         # Step 4: Determine UAL status based on probe results (truth) + config (context)
@@ -114,7 +114,6 @@ function Invoke-TenantAuditCoverageCollector {
             
             # Check for config conflict
             if ($config -and $config.UnifiedAuditLogIngestionEnabled -eq $false) {
-                # Config says disabled but probe found data - config is wrong
                 $verificationReason = "probe-truth-overrides-config"
                 $warnings += "UAL config reported disabled, but live probe found $($probe.ResultCount) records. UAL is confirmed ACTIVE."
                 Write-Host "  [UAL] ✓ ACTIVE (verified via live probe with $($probe.ResultCount) records)" -ForegroundColor Green
@@ -127,7 +126,6 @@ function Invoke-TenantAuditCoverageCollector {
         # Priority 2: Probe succeeded but no records
         elseif ($probe.Succeeded -and $probe.ResultCount -eq 0) {
             if ($config -and $config.UnifiedAuditLogIngestionEnabled -eq $true) {
-                # Config says enabled but no records - might be new tenant or truly no activity
                 $verificationStatus = "verifiedOn"
                 $verificationReason = "config-enabled-no-recent-activity"
                 $warnings += "UAL is enabled but no records found in last 24 hours. This may indicate a new tenant or no recent activity."
@@ -149,7 +147,6 @@ function Invoke-TenantAuditCoverageCollector {
                 Write-Host "  [UAL] ✗ DISABLED (confirmed by probe error)" -ForegroundColor Red
             }
             elseif ($config -and $config.UnifiedAuditLogIngestionEnabled -eq $true) {
-                # Config says enabled but probe failed - partial collection
                 $verificationStatus = "verifiedOn"
                 $verificationReason = "config-enabled-probe-failed"
                 $warnings += "UAL appears enabled but probe failed. Some audit data may be available."
@@ -177,7 +174,11 @@ function Invoke-TenantAuditCoverageCollector {
         # Build normalized output
         $normalizedData = [pscustomobject]@{
             TimestampUtc = (Get-Date).ToUniversalTime().ToString("o")
-            Config = $config
+            Config = if ($config) { [pscustomobject]@{
+                AdminAuditLogEnabled = $config.AdminAuditLogEnabled
+                UnifiedAuditLogIngestionEnabled = $config.UnifiedAuditLogIngestionEnabled
+                AuditLogAgeLimit = $config.AuditLogAgeLimit
+            } } else { $null }
             UnifiedAuditLogVerification = [pscustomobject]@{
                 Status = $verificationStatus
                 Reason = $verificationReason
@@ -193,19 +194,33 @@ function Invoke-TenantAuditCoverageCollector {
                 Succeeded = $probe.Succeeded
                 Status = if ($probe.Succeeded -and $probe.ResultCount -gt 0) { "records-returned" } elseif ($probe.Succeeded) { "no-results" } else { "failed" }
                 ResultCount = $probe.ResultCount
-                Error = $probe.Error
+                Error = if ($probe.Error) { $probe.Error.ToString().Substring(0, [Math]::Min(200, $probe.Error.ToString().Length)) } else { $null }
                 StartUtc = $probe.StartUtc
                 EndUtc = $probe.EndUtc
                 ResultSize = $probe.ResultSize
             }
         }
 
+        # Limit raw data - exclude full records to save memory
         $rawData = [pscustomobject]@{
             TimestampUtc = $normalizedData.TimestampUtc
-            Config = $config
-            ProbeRaw = $probe.Records
-            CommandContext = if ($commandContext) { $commandContext } else { $null }
+            Config = $normalizedData.Config
+            ProbeSummary = [pscustomobject]@{
+                Ran = $probe.Ran
+                Succeeded = $probe.Succeeded
+                ResultCount = $probe.ResultCount
+                SampleRecordTypes = @($probe.Records | Select-Object -ExpandProperty RecordType -Unique | Select-Object -First 3)
+            }
+            CommandContext = if ($commandContext) { [pscustomobject]@{
+                Verified = $commandContext.Verified
+                ConnectionCount = $commandContext.ConnectionCount
+            } } else { $null }
         }
+
+        # Clear probe records to free memory
+        $probe.Records = $null
+        $probeResult = $null
+        [System.GC]::Collect() | Out-Null
 
         # Step 6: Publish artifacts
         return Publish-CollectorArtifacts `

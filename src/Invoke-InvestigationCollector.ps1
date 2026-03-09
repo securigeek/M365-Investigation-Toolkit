@@ -401,7 +401,10 @@ function New-InvestigationManifest {
         [string]$Operator,
 
         [Parameter()]
-        [string]$CustomerName
+        [string]$CustomerName,
+
+        [Parameter()]
+        [psobject]$Environment
     )
 
     return [pscustomobject]@{
@@ -415,6 +418,7 @@ function New-InvestigationManifest {
         AuthMode = $AuthMode
         DaysBack = $DaysBack
         Pivots = if ($Pivots) { [pscustomobject]$Pivots } else { [pscustomobject]@{} }
+        Environment = $Environment
     }
 }
 
@@ -583,6 +587,36 @@ function New-InvestigationPreflightCapabilities {
     }
 }
 
+function Get-InvestigationEnvironmentSnapshot {
+    Write-Host "`n📸 Taking quick environment snapshot..." -ForegroundColor Cyan
+
+    $users = 0; $apps = 0; $sps = 0; $licenses = 0; $domains = 0; $admins = 0
+
+    try { $users = (Get-MgUser -Top 1 -CountVariable c -ConsistencyLevel eventual -ErrorAction SilentlyContinue | Out-Null; $c) } catch {}
+    try { $apps = (Get-MgApplication -Top 1 -CountVariable c -ConsistencyLevel eventual -ErrorAction SilentlyContinue | Out-Null; $c) } catch {}
+    try { $sps = (Get-MgServicePrincipal -Top 1 -CountVariable c -ConsistencyLevel eventual -ErrorAction SilentlyContinue | Out-Null; $c) } catch {}
+    try { $licenses = (Get-MgSubscribedSku -ErrorAction SilentlyContinue | Measure-Object -Property ConsumedUnits -Sum).Sum } catch {}
+    try { $domains = (Get-MgDomain -ErrorAction SilentlyContinue).Count } catch {}
+    try { 
+        # Global Administrator RoleTemplateId is '62e90394-69f5-4237-9190-012177145e10'
+        $role = Get-MgDirectoryRole -Filter "roleTemplateId eq '62e90394-69f5-4237-9190-012177145e10'" -ErrorAction SilentlyContinue
+        if ($role) {
+            $admins = (Get-MgDirectoryRoleMember -DirectoryRoleId $role.Id -ErrorAction SilentlyContinue).Count
+        }
+    } catch {}
+
+    Write-Host "  ✅ Snapshot complete." -ForegroundColor Green
+
+    return [pscustomobject]@{
+        Users = if ($users) { $users } else { 0 }
+        Licenses = if ($licenses) { $licenses } else { 0 }
+        Applications = if ($apps) { $apps } else { 0 }
+        ServicePrincipals = if ($sps) { $sps } else { 0 }
+        Domains = if ($domains) { $domains } else { 0 }
+        GlobalAdmins = if ($admins) { $admins } else { 0 }
+    }
+}
+
 function Invoke-InvestigationCollectionRun {
     param(
         [Parameter(Mandatory = $true)]
@@ -645,6 +679,8 @@ function Invoke-InvestigationCollectionRun {
     Write-InvestigationJsonFile -Path (Join-Path $OutputPath "api-catalog.json") -Data $apiCatalog | Out-Null
     Write-InvestigationJsonFile -Path (Join-Path $OutputPath "preflight-capabilities.json") -Data $preflight | Out-Null
 
+    $environment = Get-InvestigationEnvironmentSnapshot
+
     $manifest = New-InvestigationManifest `
         -TenantId $Connection.TenantId `
         -TenantDomain $Connection.TenantDomain `
@@ -653,7 +689,8 @@ function Invoke-InvestigationCollectionRun {
         -Pivots $Pivots `
         -AuthMode $AuthMode `
         -Operator $Connection.Graph.Account `
-        -CustomerName $(if ($Profile -and $Profile.PSObject.Properties.Name -contains "CustomerName") { $Profile.CustomerName } else { $null })
+        -CustomerName $(if ($Profile -and $Profile.PSObject.Properties.Name -contains "CustomerName") { $Profile.CustomerName } else { $null }) `
+        -Environment $environment
 
     $collectorResults = @()
     $totalModules = $executionPlan.Modules.Count + $executionPlan.SkippedModules.Count

@@ -457,16 +457,13 @@ function Find-InvestigationDormantAccountMfaTakeover {
                 Where-Object { $_.UserPrincipalName -eq $row.Target } |
                 Sort-Object { [datetime]$_.CreatedDateTime }
         )
-        $previousSignIn = @(
-            $userSignIns |
-                Where-Object { [datetime]$_.CreatedDateTime -lt $registrationTime } |
-                Select-Object -Last 1
-        )[0]
-        $nextSignIn = @(
-            $userSignIns |
-                Where-Object { [datetime]$_.CreatedDateTime -gt $registrationTime } |
-                Select-Object -First 1
-        )[0]
+        $previousSignIn = $userSignIns |
+            Where-Object { [datetime]$_.CreatedDateTime -lt $registrationTime } |
+            Select-Object -Last 1
+        
+        $nextSignIn = $userSignIns |
+            Where-Object { [datetime]$_.CreatedDateTime -gt $registrationTime } |
+            Select-Object -First 1
 
         if (-not $previousSignIn -or -not $nextSignIn) {
             continue

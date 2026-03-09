@@ -28,7 +28,7 @@ function Write-InvestigationJsonFile {
         Resolve-InvestigationPath -Path $parent | Out-Null
     }
 
-    $Data | ConvertTo-Json -Depth 12 | Set-Content $Path
+    $Data | ConvertTo-Json -Depth 100 -WarningAction SilentlyContinue | Set-Content $Path
     return $Path
 }
 

@@ -45,11 +45,19 @@ function New-CollectorResult {
         [string]$ErrorMessage,
 
         [Parameter()]
-        [string[]]$Warnings
+        [string[]]$Warnings,
+
+        [Parameter()]
+        [string[]]$Gaps
     )
 
     $resolvedWarnings = @(
         $Warnings |
+            Where-Object { -not [string]::IsNullOrWhiteSpace([string]$_) }
+    )
+
+    $resolvedGaps = @(
+        $Gaps |
             Where-Object { -not [string]::IsNullOrWhiteSpace([string]$_) }
     )
 
@@ -62,6 +70,7 @@ function New-CollectorResult {
         Metrics = if ($Metrics) { [pscustomobject]$Metrics } else { [pscustomobject]@{} }
         Error = if ([string]::IsNullOrWhiteSpace($ErrorMessage)) { $null } else { $ErrorMessage }
         Warnings = $resolvedWarnings
+        Gaps = $resolvedGaps
         Data = $Data
     }
 }
@@ -91,7 +100,10 @@ function Publish-CollectorArtifacts {
         [string]$ErrorMessage,
 
         [Parameter()]
-        [string[]]$Warnings
+        [string[]]$Warnings,
+
+        [Parameter()]
+        [string[]]$Gaps
     )
 
     $paths = New-CollectorArtifactPaths -OutputPath $OutputPath -ModuleName $ModuleName
@@ -106,5 +118,68 @@ function Publish-CollectorArtifacts {
         -Data $NormalizedData `
         -Metrics $Metrics `
         -ErrorMessage $ErrorMessage `
+        -Warnings $Warnings `
+        -Gaps $Gaps
+}
+
+# Function to handle collector errors
+function Publish-CollectorError {
+    param(
+        [Parameter(Mandatory = $true)]
+        [string]$OutputPath,
+        
+        [Parameter(Mandatory = $true)]
+        [string]$ModuleName,
+        
+        [Parameter(Mandatory = $true)]
+        [object]$Error
+    )
+    
+    $errorMessage = $Error.Exception.Message
+    if (-not $errorMessage) {
+        $errorMessage = $Error.ToString()
+    }
+    
+    Write-Host "⚠️ Collector '$ModuleName' failed: $errorMessage" -ForegroundColor Yellow
+    
+    return Publish-CollectorArtifacts `
+        -OutputPath $OutputPath `
+        -ModuleName $ModuleName `
+        -RawData $null `
+        -NormalizedData $null `
+        -Metrics @{ Error = $errorMessage } `
+        -Status "failed" `
+        -ErrorMessage $errorMessage
+}
+
+# Function to handle successful collector results
+function Publish-CollectorSuccess {
+    param(
+        [Parameter(Mandatory = $true)]
+        [string]$OutputPath,
+        
+        [Parameter(Mandatory = $true)]
+        [string]$ModuleName,
+        
+        [Parameter()]
+        [object]$RawData,
+        
+        [Parameter()]
+        [object]$NormalizedData,
+        
+        [Parameter()]
+        [hashtable]$Metrics,
+        
+        [Parameter()]
+        [string[]]$Warnings
+    )
+    
+    return Publish-CollectorArtifacts `
+        -OutputPath $OutputPath `
+        -ModuleName $ModuleName `
+        -RawData $RawData `
+        -NormalizedData $NormalizedData `
+        -Metrics $Metrics `
+        -Status "success" `
         -Warnings $Warnings
 }

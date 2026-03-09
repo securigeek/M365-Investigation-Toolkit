@@ -646,6 +646,39 @@ function Write-InvestigationTerminalSummary {
     Write-Host $padLine -ForegroundColor $severityColor
     Write-Host "└─$border┘" -ForegroundColor $severityColor
 
+    # ──── Tenant Snapshot ────
+    if ($Manifest.PSObject.Properties.Match("Environment").Count -gt 0 -and $Manifest.Environment) {
+        $env = $Manifest.Environment
+        Write-Host ""
+        Write-Host "┌─ TENANT SNAPSHOT $("─" * ($w - 18))┐" -ForegroundColor White
+        Write-Host $padLine -ForegroundColor White
+
+        $userStr = if ($null -ne $env.Users) { "{0:N0}" -f $env.Users } else { "Unknown" }
+        $licStr = if ($null -ne $env.Licenses) { "{0:N0}" -f $env.Licenses } else { "Unknown" }
+        Write-Host (BoxLine "   Users:         $(Pad $userStr 16) Licenses:   $licStr") -ForegroundColor White
+
+        $appStr = if ($null -ne $env.Applications) { "{0:N0}" -f $env.Applications } else { "Unknown" }
+        $spStr = if ($null -ne $env.ServicePrincipals) { "{0:N0}" -f $env.ServicePrincipals } else { "Unknown" }
+        Write-Host (BoxLine "   Applications:  $(Pad $appStr 16) Identities: $spStr") -ForegroundColor White
+
+        $domStr = if ($null -ne $env.Domains) { "{0:N0}" -f $env.Domains } else { "Unknown" }
+        $adminStr = if ($null -ne $env.GlobalAdmins) { "{0:N0}" -f $env.GlobalAdmins } else { "Unknown" }
+        Write-Host (BoxLine "   Domains:       $(Pad $domStr 16) Admins:     $adminStr") -ForegroundColor White
+
+        $cg = $CollectorResults | Where-Object { $_.Module -eq "consentGrants" -and $_.Status -in @("success", "partial") } | Select-Object -First 1
+        if ($cg -and $cg.Data -and $null -ne $cg.Data.Grants) {
+            $grantsCount = @($cg.Data.Grants).Count
+            $hrGrantsCount = if ($null -ne $cg.Metrics -and $null -ne $cg.Metrics.HighRiskGrantCount) { $cg.Metrics.HighRiskGrantCount } else { 0 }
+            Write-Host $padLine -ForegroundColor White
+            $totalTxt = "{0:N0}" -f $grantsCount
+            $hrTxt = "{0:N0}" -f $hrGrantsCount
+            Write-Host (BoxLine "   Permissions:   $(Pad "$totalTxt OAuth grants ($hrTxt high-risk)" 48)") -ForegroundColor White
+        }
+        
+        Write-Host $padLine -ForegroundColor White
+        Write-Host "└─$border┘" -ForegroundColor White
+    }
+
     # ──── Coverage ────
     Write-Host ""
     Write-Host "┌─ COVERAGE $("─" * ($w - 9))┐" -ForegroundColor White

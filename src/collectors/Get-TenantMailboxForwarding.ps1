@@ -11,22 +11,35 @@ function Invoke-TenantMailboxForwardingCollector {
     $moduleName = "mailboxForwarding"
 
     try {
-        $mailboxes = @(Get-EXOMailbox -ResultSize Unlimited -Properties ForwardingAddress, ForwardingSmtpAddress, DeliverToMailboxAndForward, PrimarySmtpAddress)
+        Write-Host "  📧 Fetching mailboxes with forwarding..." -ForegroundColor DarkGray
+
+        # Limit to 500 mailboxes to prevent memory issues
+        $mailboxes = @(Get-EXOMailbox -ResultSize 500 -Properties ForwardingAddress, ForwardingSmtpAddress, DeliverToMailboxAndForward, PrimarySmtpAddress, UserPrincipalName)
+        
         $forwardingHits = @(
             $mailboxes |
                 Where-Object { $_.ForwardingAddress -or $_.ForwardingSmtpAddress } |
                 Select-Object UserPrincipalName, PrimarySmtpAddress, ForwardingAddress, ForwardingSmtpAddress, DeliverToMailboxAndForward
         )
 
+        # Limit raw data size
         $rawData = [pscustomobject]@{
             TimestampUtc = (Get-Date).ToUniversalTime().ToString("o")
-            Mailboxes = $mailboxes
+            MailboxCount = @($mailboxes).Count
+            ForwardingHits = @($forwardingHits)
+            SampleMailboxes = @($mailboxes | Select-Object -First 10 UserPrincipalName, PrimarySmtpAddress, ForwardingAddress)
         }
+
         $normalizedData = [pscustomobject]@{
             TimestampUtc = $rawData.TimestampUtc
             TotalMailboxes = @($mailboxes).Count
-            ForwardingHits = $forwardingHits
+            ForwardingHits = @($forwardingHits)
+            ForwardingHitCount = @($forwardingHits).Count
         }
+
+        # Clear variable to free memory
+        $mailboxes = $null
+        [System.GC]::Collect() | Out-Null
 
         return Publish-CollectorArtifacts `
             -OutputPath $OutputPath `
@@ -34,15 +47,15 @@ function Invoke-TenantMailboxForwardingCollector {
             -RawData $rawData `
             -NormalizedData $normalizedData `
             -Metrics @{
-                TotalMailboxes = @($mailboxes).Count
-                ForwardingHitCount = @($forwardingHits).Count
+                TotalMailboxes = $normalizedData.TotalMailboxes
+                ForwardingHitCount = $normalizedData.ForwardingHitCount
             }
     } catch {
         return Publish-CollectorArtifacts `
             -OutputPath $OutputPath `
             -ModuleName $moduleName `
             -Status "failed" `
-            -NormalizedData ([pscustomobject]@{ TimestampUtc = (Get-Date).ToUniversalTime().ToString("o"); ForwardingHits = @() }) `
+            -NormalizedData ([pscustomobject]@{ TimestampUtc = (Get-Date).ToUniversalTime().ToString("o"); ForwardingHits = @(); ForwardingHitCount = 0 }) `
             -Metrics @{ TotalMailboxes = 0; ForwardingHitCount = 0 } `
             -ErrorMessage $_.Exception.Message
     }

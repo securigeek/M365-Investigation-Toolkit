@@ -277,5 +277,42 @@ Describe "Investigation reporting" {
         $text | Should -Match "CONFIDENCE"
         $text | Should -Match "Dormant"
     }
+
+    It "prints the executive tenant snapshot when environment data is provided" {
+        $envMock = [pscustomobject]@{
+            Users = 1200
+            Licenses = 950
+            Applications = 300
+            ServicePrincipals = 850
+            Domains = 5
+            GlobalAdmins = 4
+        }
+        $cgMock = [pscustomobject]@{
+            Module = "consentGrants"
+            Status = "success"
+            Metrics = [pscustomobject]@{ HighRiskGrantCount = 12 }
+            Data = [pscustomobject]@{
+                Grants = 1..150 | ForEach-Object { [pscustomobject]@{ Scope = "Read" } }
+            }
+        }
+        $manifestWithEnv = [pscustomobject]@{
+            TenantDomain = "contoso.onmicrosoft.com"
+            CaseName = "snapshot-test"
+            DaysBack = 14
+            Environment = $envMock
+        }
+
+        $output = Write-InvestigationTerminalSummary `
+            -Manifest $manifestWithEnv `
+            -CollectorResults @($cgMock) `
+            -OutputPath "/tmp/example" 6>&1
+
+        $text = ($output | ForEach-Object { $_.ToString() }) -join "`n"
+        $text | Should -Match "TENANT SNAPSHOT"
+        $text | Should -Match "1.200"
+        $text | Should -Match "850"
+        $text | Should -Match "150 OAuth grants"
+    }
 }
+
 

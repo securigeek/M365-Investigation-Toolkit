@@ -1,0 +1,50 @@
+{
+  "DemoScenarios": [
+    {
+      "Description": "Règle de forwarding vers attacker@malicious-example.com",
+      "User": "demo.victim@",
+      "DetectionExpected": "BEC_Indicator",
+      "Name": "Email Forwarding"
+    },
+    {
+      "Description": "Auto-delete des emails externes",
+      "User": "demo.victim@",
+      "DetectionExpected": "BEC_Indicator",
+      "Name": "Suspicious Inbox Rules"
+    },
+    {
+      "Description": "App avec permissions Mail.ReadWrite + Mail.Send",
+      "DetectionExpected": "OAuthAbuse",
+      "AppId": null,
+      "Name": "OAuth Consent Abuse"
+    },
+    {
+      "Description": "Utilisateur sans MFA obligatoire",
+      "User": "demo.victim@",
+      "DetectionExpected": "AccountSecurity",
+      "Name": "MFA Disabled"
+    },
+    {
+      "Description": "Compte désactivé qui pourrait être réactivé",
+      "User": "demo.dormant@",
+      "DetectionExpected": "DormantAccount",
+      "Name": "Dormant Account"
+    }
+  ],
+  "CleanupInstructions": "Pour nettoyer cet environnement:\n1. Supprimer les inbox rules: Get-InboxRule -Mailbox demo.victim@ | Remove-InboxRule\n2. Supprimer l'app: Remove-MgApplication -ApplicationId <AppId>\n3. Supprimer les users: Get-MgUser -Filter \"startsWith(DisplayName,'Demo ')\" | Remove-MgUser\n4. Supprimer transport rules: Get-TransportRule | Where-Object Name -like \"DEMO-*\" | Remove-TransportRule",
+  "SetupDate": "2026-03-07 21:33:18",
+  "ObjectsCreated": {
+    "CreatedUsers": [
+      null,
+      null
+    ],
+    "CreatedApps": [
+      null
+    ],
+    "CreatedRules": [],
+    "ModifiedMailboxes": [],
+    "CreatedSPNs": [
+      null
+    ]
+  }
+}
